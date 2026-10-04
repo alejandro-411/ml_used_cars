@@ -18,6 +18,19 @@ from sklearn.ensemble import (
 )
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
+from ui import (
+    aplicar_estilos,
+    panel,
+    render_hero,
+    render_metricas,
+    render_parametros,
+    render_precio,
+    render_resultado,
+    render_status,
+    texto_ayuda,
+    titulo_seccion,
+)
+
 
 BASE_DIR = Path(__file__).resolve().parent
 RUTA_DATOS = BASE_DIR / "content" / "Used_Car_Prices.csv"
@@ -245,62 +258,90 @@ def cargar_o_entrenar_modelo():
     return artefactos
 
 
+def formatear_tabla(df, redondeos=None):
+    vista = df.copy()
+    if redondeos:
+        for col, decimales in redondeos.items():
+            if col in vista.columns:
+                vista[col] = vista[col].astype(float).round(decimales)
+    return vista
+
+
 def mostrar_evaluacion(artefactos):
-    st.subheader("4.2 Ajuste de hiperparámetros (Cross Validation)")
-    st.write(
-        "Se usó el **70%** de los datos para entrenar. "
-        "La métrica de optimización en GridSearchCV fue "
-        "`neg_mean_absolute_error` (MAE), porque el error se interpreta "
-        "directamente en dinero (unidades del precio)."
+    titulo_seccion("sliders", "4.2 Ajuste de hiperparámetros (Cross Validation)")
+    panel(
+        """
+        <p class="hint" style="margin:0;">
+            Se usó el <strong>70%</strong> de los datos para entrenar.
+            La métrica de optimización en GridSearchCV fue
+            <code>neg_mean_absolute_error</code> (MAE), porque el error se interpreta
+            directamente en dinero (unidades del precio).
+        </p>
+        """
     )
 
     with st.expander("Ver mejores hiperparámetros por modelo"):
-        for nombre, params in artefactos["mejores_params"].items():
-            st.markdown(f"**{nombre}:** `{params}`")
+        render_parametros(artefactos["mejores_params"])
 
-    st.subheader("4.3 Medida de calidad del modelo")
-    st.write(
-        "Evaluación sobre el **30%** de prueba. "
-        "El modelo ganador se elige por el menor MAE."
-    )
+    titulo_seccion("clipboard", "4.3 Medida de calidad del modelo")
 
     df_resultados = artefactos["resultados"].copy()
-    st.dataframe(
-        df_resultados.style.format(
-            {
-                "MAE": "{:.2f}",
-                "RMSE": "{:.2f}",
-                "R2": "{:.4f}",
-                "MAPE (%)": "{:.2f}",
-            }
-        ),
-        width="stretch",
+    mejor = df_resultados.iloc[0]
+
+    render_metricas(artefactos["nombre_modelo"], mejor["MAE"], mejor["R2"])
+    panel(
+        """
+        <p class="hint" style="margin:0;">
+            Evaluación sobre el <strong>30%</strong> de prueba.
+            El modelo ganador se elige por el menor MAE.
+        </p>
+        """
     )
 
-    st.success(
-        f"Modelo seleccionado: **{artefactos['nombre_modelo']}** "
-        f"(MAE = {df_resultados.iloc[0]['MAE']:.2f})"
+    vista = formatear_tabla(
+        df_resultados,
+        {"MAE": 2, "RMSE": 2, "R2": 4, "MAPE (%)": 2},
+    )
+    st.dataframe(vista, width="stretch", hide_index=True)
+
+    render_resultado(
+        f'Modelo seleccionado: <strong>{artefactos["nombre_modelo"]}</strong>'
+        f'&nbsp;·&nbsp; MAE = {mejor["MAE"]:.2f}'
     )
 
 
 def pestana_prediccion_manual(artefactos):
-    st.header("Ingreso manual de un vehículo")
+    titulo_seccion("car", "Ingreso manual de un vehículo")
+    texto_ayuda("Completa las características del vehículo para estimar su precio de venta.")
 
     opciones = artefactos["opciones"]
 
     col1, col2 = st.columns(2)
     with col1:
         brand = st.selectbox("Marca (Brand)", opciones["Brand"])
-        model_year = st.number_input("Año modelo (ModelYear)", min_value=1990, max_value=2026, value=2018)
-        mileage = st.number_input("Kilometraje en millas (Mileage_miles)", min_value=0.0, value=50000.0, step=100.0)
+        model_year = st.number_input(
+            "Año modelo (ModelYear)", min_value=1990, max_value=2026, value=2018
+        )
+        mileage = st.number_input(
+            "Kilometraje en millas (Mileage_miles)",
+            min_value=0.0,
+            value=50000.0,
+            step=100.0,
+        )
         fuel = st.selectbox("Combustible (FuelType)", opciones["FuelType"])
         transmission = st.selectbox("Transmisión (Transmission)", opciones["Transmission"])
 
     with col2:
-        engine = st.number_input("Cilindraje (EngineSize)", min_value=0.6, max_value=8.0, value=2.0, step=0.1)
-        horsepower = st.number_input("Potencia (Horsepower)", min_value=40.0, max_value=700.0, value=150.0, step=1.0)
+        engine = st.number_input(
+            "Cilindraje (EngineSize)", min_value=0.6, max_value=8.0, value=2.0, step=0.1
+        )
+        horsepower = st.number_input(
+            "Potencia (Horsepower)", min_value=40.0, max_value=700.0, value=150.0, step=1.0
+        )
         doors = st.selectbox("Puertas (Doors)", [2, 3, 4, 5], index=2)
-        owners = st.number_input("Dueños previos (PreviousOwners)", min_value=0, max_value=10, value=1)
+        owners = st.number_input(
+            "Dueños previos (PreviousOwners)", min_value=0, max_value=10, value=1
+        )
 
     if st.button("Predecir precio", type="primary"):
         df_entrada = pd.DataFrame(
@@ -323,19 +364,23 @@ def pestana_prediccion_manual(artefactos):
             df_procesado = preparar_para_prediccion(df_entrada, artefactos)
             prediccion = artefactos["modelo"].predict(df_procesado)[0]
 
-            st.subheader("Datos enviados al modelo")
-            st.dataframe(df_procesado, width="stretch")
-            st.success(f"Precio estimado: **${prediccion:,.2f}**")
+            titulo_seccion("table", "Datos enviados al modelo")
+            st.dataframe(
+                formatear_tabla(df_procesado, {c: 4 for c in df_procesado.columns}),
+                width="stretch",
+                hide_index=True,
+            )
+            render_precio(prediccion)
         except Exception as e:
             st.error(f"No se pudo realizar la predicción: {e}")
 
 
 def pestana_prediccion_archivo(artefactos):
-    st.header("Predicción por lotes (CSV)")
-    st.write(
+    titulo_seccion("file", "Predicción por lotes (CSV)")
+    texto_ayuda(
         "Sube un archivo CSV con las mismas columnas del dataset original "
         "(o al menos las variables usadas por el modelo). "
-        "No se necesita la columna `Price`."
+        "No se necesita la columna <code>Price</code>."
     )
 
     archivo = st.file_uploader("Archivo CSV", type=["csv"])
@@ -345,8 +390,8 @@ def pestana_prediccion_archivo(artefactos):
 
     try:
         df_excel = pd.read_csv(archivo)
-        st.write("Vista previa de los datos cargados:")
-        st.dataframe(df_excel.head(), width="stretch")
+        titulo_seccion("eye", "Vista previa de los datos cargados")
+        st.dataframe(df_excel.head(), width="stretch", hide_index=True)
 
         if st.button("Predecir por lotes", type="primary"):
             with st.spinner("Procesando y prediciendo..."):
@@ -354,10 +399,10 @@ def pestana_prediccion_archivo(artefactos):
                 predicciones = artefactos["modelo"].predict(df_procesado)
 
                 df_salida = df_excel.copy()
-                df_salida["Precio_Predicho"] = predicciones
+                df_salida["Precio_Predicho"] = np.round(predicciones, 2)
 
-                st.success("Predicciones completadas.")
-                st.dataframe(df_salida, width="stretch")
+                render_resultado("Predicciones completadas correctamente.")
+                st.dataframe(df_salida, width="stretch", hide_index=True)
 
                 csv_bytes = df_salida.to_csv(index=False).encode("utf-8")
                 st.download_button(
@@ -373,16 +418,12 @@ def pestana_prediccion_archivo(artefactos):
 def main():
     st.set_page_config(
         page_title="Predicción de Precios de Vehículos Usados",
-        page_icon="🚗",
         layout="wide",
+        initial_sidebar_state="collapsed",
     )
 
-    st.title("Predicción del precio de vehículos usados")
-    st.write(
-        "Aplicación de Machine Learning (regresión) para estimar el precio de venta "
-        "a partir de características técnicas y comerciales del vehículo. "
-        "Metodología CRISP-DM — puntos 4.2 y 4.3, más despliegue de predicción."
-    )
+    aplicar_estilos()
+    render_hero()
 
     if not RUTA_DATOS.exists():
         st.error(f"No se encontró el dataset en: `{RUTA_DATOS}`")
@@ -395,13 +436,13 @@ def main():
             st.error(f"Error al preparar el modelo: {e}")
             st.stop()
 
-    st.info(f"Modelo en uso: **{artefactos['nombre_modelo']}**")
+    render_status(artefactos["nombre_modelo"])
 
     tab1, tab2, tab3 = st.tabs(
         [
-            "Evaluación de modelos (4.2 y 4.3)",
+            "Evaluación de modelos",
             "Predicción manual",
-            "Predicción por archivo CSV",
+            "Predicción por archivo",
         ]
     )
 
